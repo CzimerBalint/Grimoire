@@ -172,8 +172,6 @@ public partial class MainForm : Form
         progressBar1.Visible = true;
         syncButton.Enabled = false;
 
-        bool useSubtitleReference = modeComboBox.SelectedIndex == 1;
-
         // Változók a "Mindegyikre alkalmaz" funkcióhoz
         bool applyToAllTracks = false;
         int savedTrackIndex = 0;
@@ -186,43 +184,36 @@ public partial class MainForm : Form
                 var sub = subtitles[i];
                 int currentTrackIndex = 0;
 
-                // Ha felirat alapú a mód, le kell kérdezni a sávokat
-                if (useSubtitleReference)
-                {
-                    var tracks = await _syncService.GetSubtitleTracksAsync(video.FullPath);
+                // Mivel a hang alapú szinkront kivettük, MINDIG lekérdezzük a feliratsávokat
+                var tracks = await _syncService.GetSubtitleTracksAsync(video.FullPath);
 
-                    if (tracks.Count > 1)
+                if (tracks.Count > 1)
+                {
+                    // Ha korábban bepipálták a "mindegyikre" opciót:
+                    if (applyToAllTracks)
                     {
-                        // Ha korábban bepipálták a "mindegyikre" opciót:
-                        if (applyToAllTracks)
-                        {
-                            // Biztonsági ellenőrzés: ha a mentett index (pl. 2) nem létezik ebben a videóban, visszaváltunk 0-ra
-                            if (savedTrackIndex < tracks.Count)
-                                currentTrackIndex = savedTrackIndex;
-                            else
-                                currentTrackIndex = 0;
-                        }
+                        // Biztonsági ellenőrzés
+                        if (savedTrackIndex < tracks.Count)
+                            currentTrackIndex = savedTrackIndex;
                         else
+                            currentTrackIndex = 0;
+                    }
+                    else
+                    {
+                        // Ablak feldobása a sáv kiválasztásához
+                        using var dialog = new TrackSelectionDialog(video.FileName, tracks);
+                        if (dialog.ShowDialog() == DialogResult.OK)
                         {
-                            // Ha még nem választottak, vagy nem pipálták be: Feldobjuk az ablakot
-                            using var dialog = new TrackSelectionDialog(video.FileName, tracks);
-                            if (dialog.ShowDialog() == DialogResult.OK)
-                            {
-                                currentTrackIndex = dialog.SelectedTrackIndex;
-                                applyToAllTracks = dialog.ApplyToAll; // Megjegyezzük a pipát
-                                savedTrackIndex = currentTrackIndex;  // Megjegyezzük az indexet
-                            }
-                            else
-                            {
-                                // Ha a Mégse gombra nyomott, ugorjuk ezt a fájlt, vagy állítsuk le? 
-                                // Most csak az alapértelmezett 0-t használjuk.
-                                currentTrackIndex = 0;
-                            }
+                            currentTrackIndex = dialog.SelectedTrackIndex;
+                            applyToAllTracks = dialog.ApplyToAll; // Megjegyezzük a pipát
+                            savedTrackIndex = currentTrackIndex;  // Megjegyezzük az indexet
                         }
                     }
                 }
 
-                bool success = await _syncService.SyncSubtitleAsync(video.FullPath, sub.FullPath, 0);
+                // JAVÍTVA: Itt adom át a currentTrackIndex-et a 0 helyett!
+                bool success = await _syncService.SyncSubtitleAsync(video.FullPath, sub.FullPath, currentTrackIndex);
+            
                 if (!success) Debug.WriteLine($"Hiba: {video.FileName}");
 
                 progressBar1.Value = i + 1;

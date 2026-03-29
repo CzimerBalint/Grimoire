@@ -23,7 +23,7 @@ public class SubtitleSyncService
         return File.Exists(_ffmpegPath) && File.Exists(_alassPath);
     }
 
-    // ---- FELIRAT TRACK LISTA (egyszerű) ----
+    // ---- FELIRAT TRACK LISTA ----
     public async Task<List<string>> GetSubtitleTracksAsync(string videoPath)
     {
         var tracks = new List<string>();
@@ -64,14 +64,8 @@ public class SubtitleSyncService
         return tracks;
     }
 
-    // ---- AUDIO TRACK (dummy, hogy ne legyen hiba) ----
-    public Task<List<string>> GetAudioTracksAsync(string videoPath)
-    {
-        return Task.FromResult(new List<string>());
-    }
-
-    // ---- SZINKRONIZÁLÁS ----
-    public async Task<bool> SyncSubtitleAsync(string videoPath, string subPath, int audioTrackIndex)
+    // ---- SZINKRONIZÁLÁS FELIRAT ALAPJÁN ----
+    public async Task<bool> SyncSubtitleAsync(string videoPath, string targetSubPath, int subtitleTrackIndex)
     {
         if (!ValidateTools()) return false;
 
@@ -80,31 +74,30 @@ public class SubtitleSyncService
             string tempId = Guid.NewGuid().ToString();
             string tempDir = Path.GetTempPath();
 
-            string tempAudio = Path.Combine(tempDir, $"ref_{tempId}.wav");
+            // A kinyert referencia felirat és az elkészült felirat helye
+            string tempRefSub = Path.Combine(tempDir, $"ref_{tempId}.ass");
             string tempSynced = Path.Combine(tempDir, $"synced_{tempId}.ass");
 
             try
             {
-                // 1. referencia hang kinyerése
-                string extractArgs =
-                    $"-i \"{videoPath}\" -map 0:a:{audioTrackIndex} -vn -af \"highpass=f=400,lowpass=f=3400\" -ac 1 -ar 16000 \"{tempAudio}\" -y";
+                // 1. Referencia felirat kinyerése a videóból (-map 0:s az audió helyett)
+                string extractArgs = $"-i \"{videoPath}\" -map 0:s:{subtitleTrackIndex} \"{tempRefSub}\" -y";
 
                 ExecuteProcess(_ffmpegPath, extractArgs);
 
-                if (!File.Exists(tempAudio))
+                if (!File.Exists(tempRefSub))
                     return false;
 
-                // 2. ALASS szinkron
-                string alassArgs =
-                    $"\"{tempAudio}\" \"{subPath}\" \"{tempSynced}\"";
+                // 2. ALASS szinkron: (kinyert videós felirat -> magyar felirat -> új szinkronizált felirat)
+                string alassArgs = $"\"{tempRefSub}\" \"{targetSubPath}\" \"{tempSynced}\"";
 
                 ExecuteProcess(_alassPath, alassArgs);
 
                 if (!File.Exists(tempSynced))
                     return false;
 
-                // 3. eredeti felirat felülírása
-                File.Copy(tempSynced, subPath, true);
+                // 3. Eredeti célfelirat felülírása a kész, időzített verzióval
+                File.Copy(tempSynced, targetSubPath, true);
 
                 return true;
             }
@@ -114,9 +107,10 @@ public class SubtitleSyncService
             }
             finally
             {
+                // 4. Ideiglenes fájlok takarítása
                 try
                 {
-                    if (File.Exists(tempAudio)) File.Delete(tempAudio);
+                    if (File.Exists(tempRefSub)) File.Delete(tempRefSub);
                     if (File.Exists(tempSynced)) File.Delete(tempSynced);
                 }
                 catch { }
